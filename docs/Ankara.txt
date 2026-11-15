@@ -1,0 +1,123 @@
+1. CANLI DURAK VARIŞ TAHMİNLERİ
+
+İstek:
+GET https://egocptngapi.ego.gov.tr/api/arrivals?stopId=10940
+
+Parametre:
+- stopId: Beş haneli Ankara durak numarası.
+
+Kodun kullandığı alanlar:
+- success: Servis sonucunun başarılı olup olmadığı.
+- arrivals: Varış kayıtları dizisi.
+- routeId: Hat kodu.
+- busId: Araç kimliği.
+- remainingMinutes: Kaynağın durak için hesapladığı tahmini dakika.
+- signalAgeSeconds: Araç sinyali yaşı; varsa kullanılır.
+- snapshotAgeSeconds: Kaynak görüntüsünün yaşı; varsa kullanılır.
+- source: Kaynak türünü belirtmek için kullanılır.
+
+İşleme:
+- remainingMinutes olmayan kayıt için dakika uydurulmaz.
+- Hat filtresi varsa routeId üzerinden uygulanır.
+- Sonuçlar varış süresine göre sıralanır.
+- Uygun araç kimlikleri ve hat kodları eşleştiğinde ayrı GPS kaynağıyla birleştirilir.
+- Yaklaşma bildiriminde, kaynak veya araç sinyal yaşı 180 saniyeyi aşıyorsa sonuç kullanılmaz.
+
+Kaynak kod: android-legacy/src/org/transittr/EgoRealtime.java
+
+2. EGO MOBİL OTOBÜS VE GPS VERİSİ
+
+Ana adres:
+https://egocptsrvand.ego.gov.tr/mblSrv14/service.asp
+
+Hat belirtilmeden durak sorgusu:
+GET https://egocptsrvand.ego.gov.tr/mblSrv14/service.asp?FNC=Otobusler&VER=3.1.0&LAN=tr&DURAK=10940
+
+Hat ve durak sorgusu:
+GET https://egocptsrvand.ego.gov.tr/mblSrv14/service.asp?FNC=Otobus&VER=3.1.0&LAN=tr&DURAK=10940&HAT=481
+
+Başlıca alanlar:
+- status ve table: Yanıt durumu ve kayıtlar.
+- arac_no: Araç numarası; '-' olan kayıt canlı araç olarak işlenmez.
+- hat_kisa_kod, hat_no, hat_kod: Hat kimliği.
+- hat_ad: Hat adı.
+- lat, lng: Araç koordinatları.
+- konum_tarihi: Kaynak konum zamanı.
+- saniye ve sure: Durak için kalan süre veya geçmiş araç bilgisi.
+
+Önemli davranışlar:
+- Kod, saniye değeri 999000 veya üzerindeyse ya da süre metninde 'geçti' varsa aracı geçmiş kabul eder.
+- Koordinatı bulunmayan kayıt GPS aracı olarak haritaya eklenmez.
+- Yeni varış servisi başarısız olduğunda mobil servis sonucu yedek olarak kullanılabilir.
+- GPS konumu ve durağa varış tahmini farklı kaynaklardan gelebilir; birleştirme her araç için garanti değildir.
+
+Kullanılan User-Agent:
+EGO Cepte/8 CFNetwork/1568.300.101 Darwin/24.0.0
+
+Kaynak kod: android-legacy/src/org/transittr/EgoMobile.java ve TrackingClient.java
+
+3. RAYLI SİSTEM İSTASYON GEÇİŞ TARİFESİ
+
+İstek:
+GET https://egocptsrvand.ego.gov.tr/hibrit/action.asp?FNC=DuraklardanGecisSaatleri&HAT=M1-D
+
+Uygulamadaki yön kodları:
+- M1-D / M1-G: Birleşik M1-M2-M3 gösterimi için kullanılan yön verileri.
+- M4-D / M4-G: M4.
+- A1-D / A1-G: Ankaray.
+- B1-D / B1-G: BaşkentRay.
+
+Kodun kullandığı yanıt alanları:
+- status: Yanıtın başarı durumu.
+- table: İstasyon kayıtları.
+- kod: İstasyon kodu.
+- tur: Tarife gün türü.
+- saat: İstasyondan planlı geçiş saatleri metni.
+
+İşleme:
+- Yerel istasyon adı, uygulamadaki istasyon kodu eşlemesiyle kaynak koduna bağlanır.
+- Hafta içi, cumartesi ve pazar tarife türü kontrol edilir.
+- Saatler Türkiye saatiyle değerlendirilir; 06.00 öncesindeki saatler hizmet gününün devamı olarak ele alınır.
+- Yaklaşan geçişler ve son planlı geçiş görüntülenir.
+- Başarılı yanıt yerel olarak saklanır; bağlantı hatasında gün türü uygunsa güncelleme tarihiyle kullanılabilir.
+
+SINIR: Bu uç nokta planlı tarifedir. Canlı tren GPS konumu, gerçekleşen geçiş, gecikme veya iptal verisi olarak yorumlanmamalıdır. Haritadaki tren işaretleri ayrı bir saat tabanlı tahmin modelidir.
+
+Kaynak kod: android-legacy/src/org/transittr/EgoRailClient.java ve RailEstimator.java
+
+4. EGO WEB TARİFELERİ VE KATALOG
+
+Hareket saatleri sayfası:
+https://www.ego.gov.tr/hareketsaatleri
+
+Kaynak verideki hat listesi uç noktaları:
+POST https://www.ego.gov.tr/AjaxData/HatListesi
+POST https://www.ego.gov.tr/AjaxData/HatListesiOtobus
+POST https://www.ego.gov.tr/AjaxData/HatListesiMetro
+POST https://www.ego.gov.tr/AjaxData/HatListesiAnkaray
+
+Örnek form alanı: hat_no=481
+
+Hareket saatleri için kaynak notlarında belirtilen form:
+POST https://www.ego.gov.tr/HareketSaatleri
+Form alanı: hat_no1=481
+
+Projede ayrıca yayımlanan sayfadan hat bazında eşitleme aracı bulunur:
+GET https://www.ego.gov.tr/hareketsaatleri?hat_no=481
+
+İşlenebilen bilgiler: hat adı, kalkış/varış yeri, süre, hafta içi, cumartesi ve pazar seferleri ile yayımlanan özel notlar. Web sayfası veya HTML yapısı değişirse ayrıştırıcı güncellemesi gerekebilir.
+
+Kaynak kod: tools/sync_ego_catalog.py
+
+5. GÜVENLİK VE AĞ DAVRANIŞI
+
+- HTTPS sertifika zinciri ve sunucu adı doğrulanır; doğrulama kapatılmaz.
+- HTTP bağlantılarında zaman aşımı, yanıt boyutu ve veri sayısı sınırları uygulanır.
+- Android 2.2 için uyumlu TLS katmanı kullanılır; bu, doğrulamayı kaldırmak anlamına gelmez.
+- EGO servislerinde hata, boş yanıt, eski veri veya şema değişikliği olabilir. Yedek kaynak kullanıldığında bunun kapsamı kullanıcıya belirtilmelidir.
+
+Kaynak kod: ApiHttp.java, EgoMobile.java, LegacyTls.java ve EgoLocal.java
+
+6. DOĞRULAMA DURUMU
+
+Önceki emülatör çalışmalarında Android 2.2 ve Android 6 üzerinde Ankara raylı sistem istasyon eşlemeleri ve saat ayrıştırma testleri çalıştırıldı. Ayrıca Android TV ve Wear OS emülatörlerinde örnek Ankara canlı sorguları görüntülendi. Bu sonuçlar geçmiş testlere aittir; servislerin şu anda erişilebilir olduğunu tek başına kanıtlamaz.
